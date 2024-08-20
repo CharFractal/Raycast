@@ -1,0 +1,17 @@
+{
+  "name": "Raycast",
+  "version": "1.0.0",
+  "description": "raycasting",
+  "main": "index.js",
+  "scripts": {
+    "watch": "tsc -w"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "http-server": "^14.1.1"
+  }
+}
