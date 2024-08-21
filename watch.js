@@ -21,5 +21,5 @@ function cmd(program, args) {
 
 const tscPath = path.resolve('node_modules', '.bin', 'tsc');
 cmd(tscPath, ['-w']);
-cmd('http-server', ['-p', '8080', '-a', '127.0.0.1', '-s']);
+cmd('http-server', ['-p', '8080', '-a', '127.0.0.1', '-s', '-c-1']);
 
