@@ -1,6 +1,6 @@
 const EPS = 1e-6;
 
-const SCREEN_FACTOR = 40
+const SCREEN_FACTOR = 10
 const SCREEN_WIDTH  = 16* SCREEN_FACTOR;
 const SCREEN_HEIGHT = 9 * SCREEN_FACTOR;
 
@@ -15,7 +15,7 @@ const PLAYER_SIZE = 0.5;
 
 //------------------------------------------------------------TYPES
 
-type Tile = Color | ImageData | HTMLImageElement | null;
+type Tile = Color | HTMLImageElement | null;
 
 //------------------------------------------------------------CLASSES
 
@@ -32,7 +32,7 @@ class Vector2{
   static scalar(value : number): Vector2{
     return new Vector2(value, value);
   }
-  static angle(angle : number) : Vector2{
+  static fromAngle(angle : number) : Vector2{
     return new Vector2(Math.cos(angle),Math.sin(angle))
   }
   div(that : Vector2):Vector2{
@@ -97,9 +97,7 @@ class Color {
     this.b = b;
     this.a = a;
   }
-  brightness(factor : number) : Color{
-    return new Color(factor * this.r, factor * this.g, factor * this.b, this.a);
-  }
+
   toString(): string {
     return `rgba(${Math.floor(this.r * 255)}, ${Math.floor(this.g * 255)}, ${Math.floor(this.b * 255)}, ${this.a})`;
   }
@@ -127,6 +125,9 @@ class Color {
   static cyan(): Color {
     return new Color(0, 1, 1, 1);
   }
+  brightness(factor : number) : Color{
+    return new Color(factor * this.r, factor * this.g, factor * this.b, factor * this.a);
+  }
 }
 
 class Scene{
@@ -140,7 +141,7 @@ class Scene{
   constructor(walls : Array<Array<Tile>>){
     this.height = walls.length;
     this.width= Number.MIN_VALUE;
-    this.floor1 = new Color(0.09,0.09,0.09,1);
+    this.floor1 = new Color(1,1,1,1);
     this.floor2 = new Color(0.25,0,0,1);
     this.sky1   = new Color(1,1,1,1);
     this.sky2   = new Color(1,0,0,1);
@@ -150,7 +151,7 @@ class Scene{
     this.walls = [];
     for(let row of walls){
       this.walls = this.walls.concat(row);
-      for(let i = 0; i < this.width - row.length; ++i){
+       for(let i = 0; i < this.width - row.length; ++i){
         this.walls.push(null);
       }
     }
@@ -164,6 +165,7 @@ class Scene{
   isWall(p : Vector2): boolean{
     let c = this.getWall(p);
     return c !== null && c !== undefined;
+
   }
   getWall(p: Vector2): Tile | undefined{
     if(!this.contains(p)) return undefined
@@ -180,7 +182,7 @@ class Scene{
   }
   getSky(p : Vector2) : Tile | undefined{
     const cell = p.map(Math.floor);
-    if((cell.x + cell.y) % 2 == 0){
+    if((cell.x + cell.y) % 4 == 0){
       return this.sky1;
     }else{
       return this.sky2;
@@ -197,7 +199,7 @@ class Player{
   }
   fovRange(clippingPlane : number) : [Vector2, Vector2]{
     const l =  Math.tan(FOV * 0.5) * clippingPlane;
-    const p = this.position.add(Vector2.angle(this.direction).scale(clippingPlane));
+    const p = this.position.add(Vector2.fromAngle(this.direction).scale(clippingPlane));
 
     const p1= p.sub(p.sub(this.position).rot90().norm().scale(l));
     const p2= p.add(p.sub(this.position).rot90().norm().scale(l));
@@ -209,12 +211,28 @@ class Player{
 
 //------------------------------------------------------------FUNCTIONS
 
+function fillCircle(ctx : CanvasRenderingContext2D, center : Vector2, radius : number){
+  ctx.beginPath();
+  ctx.arc(...center.array(), radius, 0, 2 * Math.PI);
+  ctx.fill();
+}
+
+function strokeLine(ctx : CanvasRenderingContext2D, p1 : Vector2, p2 : Vector2){
+  ctx.beginPath();
+  ctx.moveTo(...p1.array());
+  ctx.lineTo(...p2.array());
+  ctx.stroke();
+}
+
 function snap(x : number, dx : number) : number{
   if(dx > 0) return Math.ceil(x + Math.sign(dx)*EPS);
   if(dx < 0) return Math.floor(x+ Math.sign(dx)*EPS);
   return x;
 }
 
+function canvasSize(ctx : CanvasRenderingContext2D) : Vector2{
+  return  new Vector2(ctx.canvas.width, ctx.canvas.height);
+}
 
 function distancePointToLine(p1 : Vector2, p2 : Vector2, p3 : Vector2){
   let dy = p2.y - p1.y;
@@ -289,7 +307,7 @@ function castRay(scene : Scene, p1 : Vector2, p2 : Vector2) : Vector2{
 }
 //------------------------------------------------------------IMAGE DATA
 
-async function loadImage(url : string): Promise<HTMLImageElement>{
+async function loadImageData(url : string): Promise<HTMLImageElement>{
 
   const image = new Image();
   image.src = url;
@@ -298,16 +316,6 @@ async function loadImage(url : string): Promise<HTMLImageElement>{
     image.onload = () => resolve(image);
     image.onerror = reject;
   });
-}
-
-async function loadImageData(url : string) : Promise<ImageData>{
-  const image = await loadImage(url);
-  const canvas= new OffscreenCanvas(image.width, image.height);
-  const ctx   = canvas.getContext("2d");
-  if(ctx === null) throw new Error ("2D canvas is not supported");
-  ctx.drawImage(image, 0,0);
-
-  return ctx.getImageData(0,0,image.width, image.height);
 }
 
 //------------------------------------------------------------RENDER FUNCTIONS
@@ -357,150 +365,198 @@ function renderMinimap(ctx : CanvasRenderingContext2D, player : Player, position
   const [nearP1,nearP2] = player.fovRange(NEAR_CLIPPING_PLANE);
   const [farP1,farP2] = player.fovRange(FAR_CLIPPING_PLANE);
 
-  const look = Vector2.angle(player.direction);
+  const look = Vector2.fromAngle(player.direction);
   const near = player.position.add(look.scale(NEAR_CLIPPING_PLANE));
   const far  = player.position.add(look.scale(FAR_CLIPPING_PLANE));
 
-  ctx.strokeStyle="yellow";
-  strokeLine(ctx,near,far);
+  // ctx.strokeStyle="yellow";
+  // strokeLine(ctx,near,far);
 
-  ctx.strokeStyle="red";
-  strokeLine(ctx, player.position, farP1);
-  strokeLine(ctx, player.position, farP2);
-  strokeLine(ctx, farP1, farP2);
+  // ctx.strokeStyle="red";
+  // strokeLine(ctx, player.position, farP1);
+  // strokeLine(ctx, player.position, farP2);
+  // strokeLine(ctx, farP1, farP2);
 
   ctx.strokeStyle="blue";
   strokeLine(ctx, player.position, nearP1);
   strokeLine(ctx, player.position, nearP2);
   strokeLine(ctx, nearP1, nearP2);
 
+
+
   ctx.restore();
 }
+//
+// for(let dx = 0; dx <= factor; ++dx){
+//   const p =  p1.lerp(p2,dx/factor);
+// }
 
-function renderSkyToImageData(imageData : ImageData, player : Player, scene : Scene){
-
-  const playerZ =  SCREEN_HEIGHT/2;
-
-  const [p1,p2] = player.fovRange(NEAR_CLIPPING_PLANE);
-
-  for(let row = SCREEN_HEIGHT/2 ; row < SCREEN_HEIGHT; ++row){
-    const screenZ = SCREEN_HEIGHT - row -1;
-    const smolPerpendicualar  = (playerZ - screenZ) ;
-    const smolBase            = p1.sub(player.position).length();
-    const hypotenuse          = (smolBase/smolPerpendicualar) * playerZ / NEAR_CLIPPING_PLANE;
-    const leftFloorLimit = player.position.add(p1.sub(player.position).norm().scale(hypotenuse)); 
-    const rightFloorLimit= player.position.add(p2.sub(player.position).norm().scale(hypotenuse));
-
-    for(let col = 0; col < SCREEN_WIDTH; ++col){
-      const floorCoord = leftFloorLimit.lerp(rightFloorLimit, col/SCREEN_WIDTH);
-      const tile = scene.getSky(floorCoord);
-
-      if(tile instanceof Color){
-        const color = tile.brightness(1/Math.sqrt(player.position.sqrDistanceTo(floorCoord)))
-        imageData.data[(screenZ*SCREEN_WIDTH + col)*4 + 0] = color.r * 255;
-        imageData.data[(screenZ*SCREEN_WIDTH + col)*4 + 1] = color.g * 255;
-        imageData.data[(screenZ*SCREEN_WIDTH + col)*4 + 2] = color.b * 255;
-        imageData.data[(screenZ*SCREEN_WIDTH + col)*4 + 3] = color.a * 255;
-      }
-    }
-  }
-}
-
-function renderFloorToImageData(imageData : ImageData, player : Player, scene : Scene){
+function renderSky(ctx : CanvasRenderingContext2D, player : Player, scene : Scene){
+  ctx.save();
+  ctx.scale(ctx.canvas.width/SCREEN_WIDTH,ctx.canvas.height/SCREEN_HEIGHT);
 
   const playerZ =  SCREEN_HEIGHT/2;
 
   const [p1,p2] = player.fovRange(NEAR_CLIPPING_PLANE);
 
-  for(let y = 0 ; y < SCREEN_HEIGHT/2; ++y){
-    const screenZ = SCREEN_HEIGHT - y -1;
-    const smolPerpendicualar  = (playerZ - screenZ) ;
+  for(let row = 0 ; row < SCREEN_HEIGHT/2; ++row){
+    const screenZ = SCREEN_HEIGHT - row;
+    const smolPerpendicualar  = (playerZ - screenZ) * NEAR_CLIPPING_PLANE;
     const smolBase            = p1.sub(player.position).length();
-    const hypotenuse          = (smolBase/smolPerpendicualar) * playerZ/NEAR_CLIPPING_PLANE;
+    const hypotenuse          = smolBase/smolPerpendicualar * playerZ;
     const leftFloorLimit = player.position.sub(p1.sub(player.position).norm().scale(hypotenuse)); 
     const rightFloorLimit= player.position.sub(p2.sub(player.position).norm().scale(hypotenuse));
 
-    for(let x = 0; x < SCREEN_WIDTH; ++x){
-      const floorCoord = leftFloorLimit.lerp(rightFloorLimit, x/SCREEN_WIDTH);
+    for(let col = 0; col < SCREEN_WIDTH; ++col){
+      const floorCoord = leftFloorLimit.lerp(rightFloorLimit, col/SCREEN_WIDTH);
       const tile = scene.getFloor(floorCoord);
 
       if(tile instanceof Color){
-        const color = tile.brightness(1/Math.sqrt(player.position.sqrDistanceTo(floorCoord)))
-        imageData.data[(screenZ*SCREEN_WIDTH + x)*4 + 0] = color.r * 255;
-        imageData.data[(screenZ*SCREEN_WIDTH + x)*4 + 1] = color.g * 255;
-        imageData.data[(screenZ*SCREEN_WIDTH + x)*4 + 2] = color.b * 255;
-        imageData.data[(screenZ*SCREEN_WIDTH + x)*4 + 3] = color.a * 255;
+        ctx.fillStyle = tile.brightness(1/Math.sqrt(player.position.sqrDistanceTo(floorCoord))).toString()
+        ctx.fillRect(col,row,1,1);
       }
     }
   }
+  ctx.restore();
 }
 
-function renderWallsToImageData(imageData : ImageData, player : Player, scene : Scene){
-  const [r1,r2] = player.fovRange(NEAR_CLIPPING_PLANE);
-  for(let x = 0; x < SCREEN_WIDTH; ++x){
-    const hitPoint  = castRay(scene, player.position, r1.lerp(r2, x/SCREEN_WIDTH));
-    const cell      = hittingCell(player.position, hitPoint);
-    const tile       = scene.getWall(cell);
-    const v = hitPoint.sub(player.position);
-    const d = Vector2.angle(player.direction)
-    const stripHeight = SCREEN_HEIGHT/v.dot(d);
+function renderFloor(ctx : CanvasRenderingContext2D, player : Player, scene : Scene){
+  ctx.save();
+  ctx.scale(ctx.canvas.width/SCREEN_WIDTH,ctx.canvas.height/SCREEN_HEIGHT);
 
-    if(tile instanceof ImageData){
+  const playerZ =  SCREEN_HEIGHT/2;
+
+  const [p1,p2] = player.fovRange(NEAR_CLIPPING_PLANE);
+
+  // pixelrow
+  for(let row = SCREEN_HEIGHT/2 ; row < SCREEN_HEIGHT; ++row){
+    const screenZ = SCREEN_HEIGHT - row;
+    // imagine looking into the screen
+    const smolPerpendicualar  = (playerZ - screenZ) * NEAR_CLIPPING_PLANE;
+    const smolBase            = p1.sub(player.position).length();
+    const hypotenuse          = smolBase/smolPerpendicualar * playerZ;
+    // imagine pointing a lazer to a point on ground
+    const leftFloorLimit = player.position.add(p1.sub(player.position).norm().scale(hypotenuse)); 
+    const rightFloorLimit= player.position.add(p2.sub(player.position).norm().scale(hypotenuse));
+    //pixelcol
+    for(let col = 0; col < SCREEN_WIDTH; ++col){
+      // floorCoord is a coordinate on the fllor in the game world
+      const floorCoord = leftFloorLimit.lerp(rightFloorLimit, col/SCREEN_WIDTH);
+      const tile = scene.getFloor(floorCoord);
+
+      if(tile instanceof Color){
+        ctx.fillStyle = tile.brightness(1/Math.sqrt(player.position.sqrDistanceTo(floorCoord))).toString()
+        ctx.fillRect(col,row,1,1);
+      }
+    }
+  }
+  ctx.restore();
+}
+
+
+function renderWalls(ctx : CanvasRenderingContext2D, player : Player, scene : Scene){
+  ctx.save();
+  ctx.scale(ctx.canvas.width/SCREEN_WIDTH,ctx.canvas.height/SCREEN_HEIGHT);
+
+  const [r1,r2] = player.fovRange(NEAR_CLIPPING_PLANE);
+
+  for(let x = 0; x < SCREEN_WIDTH; ++x){
+
+    const hitPoint        = castRay(scene, player.position, r1.lerp(r2,x/SCREEN_WIDTH));
+    const hitCell         = hittingCell(player.position, hitPoint);
+    const hitCellCoord    = scene.getWall(hitCell); 
+    const hitPointDistance= hitPoint.sub(player.position);
+    const playerDirection = Vector2.fromAngle(player.direction);
+    const wallLengthRatio = 1/hitPointDistance.dot(playerDirection);
+
+    if(hitCellCoord instanceof HTMLImageElement){
+
+      let stripHeight  = SCREEN_HEIGHT/hitPointDistance.dot(playerDirection);
+
       let u = 0;
-      const t = hitPoint.sub(cell);
-      if ((Math.abs(t.x) < EPS || Math.abs(t.x - 1) < EPS) && t.y > 0) {
+      const t = hitPoint.sub(hitCell);
+      if((Math.abs(t.x) < EPS || Math.abs(t.x - 1) < EPS) && t.y > 0){
         u = t.y;
-      } else {
+      }else{
         u = t.x;
       }
-      for (let dy = 0; dy < Math.ceil(stripHeight); ++dy) {
-        const tx = Math.floor(u*tile.width);
-        const ty = Math.floor(dy/Math.ceil(stripHeight)*tile.height);
-
-        const y = Math.floor((SCREEN_HEIGHT - stripHeight)*0.5) + dy;
-        imageData.data[(y*SCREEN_WIDTH + x)*4 + 0] = tile.data[(ty*tile.width + tx)*4 + 0]/v.dot(d);
-        imageData.data[(y*SCREEN_WIDTH + x)*4 + 1] = tile.data[(ty*tile.width + tx)*4 + 1]/v.dot(d);
-        imageData.data[(y*SCREEN_WIDTH + x)*4 + 2] = tile.data[(ty*tile.width + tx)*4 + 2]/v.dot(d);
-        imageData.data[(y*SCREEN_WIDTH + x)*4 + 3] = tile.data[(ty*tile.width + tx)*4 + 3];
-      }
-    }else if(tile instanceof Color){
-
-      const color = tile.brightness(1/v.dot(d))
-      for(let dy = 0; dy < Math.ceil(stripHeight); ++dy){
-        const y = ((SCREEN_HEIGHT - stripHeight) * 0.5) + dy;
-        imageData.data[(y*SCREEN_WIDTH + x) * 4 + 0] = color.r*255;
-        imageData.data[(y*SCREEN_WIDTH + x) * 4 + 1] = color.g*255;
-        imageData.data[(y*SCREEN_WIDTH + x) * 4 + 2] = color.b*255;
-        imageData.data[(y*SCREEN_WIDTH + x) * 4 + 3] = color.a*255;
-      }
+      //texture
+      ctx.drawImage(hitCellCoord,
+        Math.floor(u*hitCellCoord.width), 0,1, hitCellCoord.height,
+        Math.floor(x),
+        Math.floor((SCREEN_HEIGHT - stripHeight) * 0.5),
+        Math.ceil(1),Math.ceil(stripHeight)
+      );
+      //shading
+      ctx.fillStyle = new Color(0,0,0,1 - wallLengthRatio).toString();
+      ctx.fillRect(
+        Math.floor(x) ,
+        Math.floor((SCREEN_HEIGHT - stripHeight) * 0.5),
+        Math.ceil(1),
+        Math.ceil(stripHeight)
+      );
+    }else if(hitCellCoord instanceof Color){
+      let stripHeight  = SCREEN_HEIGHT/hitPointDistance.dot(playerDirection);
+      ctx.fillStyle = hitCellCoord.brightness(wallLengthRatio).toString();
+      ctx.fillRect(
+        Math.floor(x),
+        Math.floor((SCREEN_HEIGHT - stripHeight) * 0.5),
+        Math.ceil(1),
+        Math.ceil(stripHeight));
     }
   }
+  ctx.restore();
 }
 
-
-function renderGameToImageData(ctx : CanvasRenderingContext2D, backCtx : OffscreenCanvasRenderingContext2D, backImageData : ImageData, deltaTime : number,  imageData : ImageData, player : Player, scene : Scene){
+function renderGame(ctx : CanvasRenderingContext2D, player : Player, scene : Scene){
 
   const minimapPosition = Vector2.zero();
   const cellSize        = ctx.canvas.width * 0.02;
   const minimapSize     = scene.size().scale((cellSize));
 
+  ctx.fillStyle = "hsla(0, 100%, 25%, 1.0)"
+  ctx.fillRect(0,0,ctx.canvas.width, ctx.canvas.height);
 
-  imageData.data.fill(255);
-  renderSkyToImageData(imageData, player, scene);
-  renderFloorToImageData(imageData, player, scene);
-  renderWallsToImageData(imageData, player, scene);
-  ctx.drawImage(backCtx.canvas,0,0,ctx.canvas.width, ctx.canvas.height);
+  //floor
+  ctx.fillStyle = "#181818";
+  ctx.fillRect(0,ctx.canvas.height * 0.5,ctx.canvas.width, ctx.canvas.height * 0.5);
+
+  renderSky(ctx,player,scene);
+  renderFloor(ctx, player, scene);
+  renderWalls(ctx, player, scene); 
+  renderMinimap(ctx, player, minimapPosition, minimapSize,scene);
+}
+//------------------------------------------------------------GAME LOOP
+
+function testBackCanvas(ctx : CanvasRenderingContext2D){
+  const w = SCREEN_WIDTH ;
+  const h = SCREEN_HEIGHT;
+  const backImageData = new ImageData(w,h);
+  const backCanvas    = new OffscreenCanvas(w, h);
+  const backCtx       = backCanvas.getContext("2d");
+  if(backCtx === null) throw new Error("2D context is not supported");
+  
+  for(let y = 0; y < h; ++y){
+    for(let x = 0; x < w; ++x){
+      if((x + y) % 2 === 0){
+        backImageData.data[ (y*w + x) * 4 + 0] = 255;
+        backImageData.data[ (y*w + x) * 4 + 1] = 0;
+        backImageData.data[ (y*w + x) * 4 + 2] = 0;
+        backImageData.data[ (y*w + x) * 4 + 3] = 255;
+      }else{
+        backImageData.data[ (y*w + x) * 4 + 0] = 255;
+        backImageData.data[ (y*w + x) * 4 + 1] = 255;
+        backImageData.data[ (y*w + x) * 4 + 2] = 255;
+        backImageData.data[ (y*w + x) * 4 + 3] = 255;
+      }
+    }
+  }
 
   backCtx.putImageData(backImageData, 0, 0);
+  ctx.drawImage(backCanvas,0,0,ctx.canvas.width, ctx.canvas.height);
 
-  renderMinimap(ctx,player,minimapPosition, minimapSize, scene);
 
-  ctx.font = "bold 48px serif"
-  ctx.fillStyle = "red";
-  ctx.fillText(`${Math.floor(1/deltaTime)}`,100,100);
 }
-
-//------------------------------------------------------------GAME LOOP
 
 (async () => {
 
@@ -519,17 +575,12 @@ function renderGameToImageData(ctx : CanvasRenderingContext2D, backCtx : Offscre
   ctx.imageSmoothingEnabled = false;
 
 
-  const backImageData = new ImageData(SCREEN_WIDTH,SCREEN_HEIGHT);
-  const backCanvas    = new OffscreenCanvas(SCREEN_WIDTH, SCREEN_HEIGHT);
-  const backCtx       = backCanvas.getContext("2d");
-  if(backCtx === null) throw new Error("2D context is not supported");
-
-
+  testBackCanvas(ctx);
   const wall1  = await loadImageData("assets/walls/wall1_color.png").catch(() => Color.purple());
   const wall2  = await loadImageData("assets/walls/wall2_color.png").catch(() => Color.purple());
   const wall3  = await loadImageData("assets/walls/wall3_color.png").catch(() => Color.purple());
 
-
+  
   const scene : Scene =  new Scene(
     [
       [wall1,  null,  wall3, wall1, null ,null,null,wall1],
@@ -586,10 +637,10 @@ function renderGameToImageData(ctx : CanvasRenderingContext2D, backCtx : Offscre
     let angle = 0.0;
 
     if(movingForward){
-      velocity =  velocity.add(Vector2.angle(player.direction).scale(PLAYER_SPEED));
+      velocity =  velocity.add(Vector2.fromAngle(player.direction).scale(PLAYER_SPEED));
     }
     if(movingBackward){
-      velocity =  velocity.sub(Vector2.angle(player.direction).scale(PLAYER_SPEED));
+      velocity =  velocity.sub(Vector2.fromAngle(player.direction).scale(PLAYER_SPEED));
     }
     if(turningLeft){
       angle   -=  Math.PI * PLAYER_TURNING_SPEED;
@@ -611,8 +662,7 @@ function renderGameToImageData(ctx : CanvasRenderingContext2D, backCtx : Offscre
     }
 
     if(!togglePause){
-      // renderGame(ctx, player, scene);
-      renderGameToImageData(ctx,backCtx,backImageData ,deltaTime, backImageData, player , scene);
+      renderGame(ctx, player, scene);
     }else{
       console.log("paused");
     }
@@ -625,16 +675,3 @@ function renderGameToImageData(ctx : CanvasRenderingContext2D, backCtx : Offscre
   })
 
 })()
-
-function fillCircle(ctx : CanvasRenderingContext2D, center : Vector2, radius : number){
-  ctx.beginPath();
-  ctx.arc(...center.array(), radius, 0, 2 * Math.PI);
-  ctx.fill();
-}
-
-function strokeLine(ctx : CanvasRenderingContext2D, p1 : Vector2, p2 : Vector2){
-  ctx.beginPath();
-  ctx.moveTo(...p1.array());
-  ctx.lineTo(...p2.array());
-  ctx.stroke();
-}
